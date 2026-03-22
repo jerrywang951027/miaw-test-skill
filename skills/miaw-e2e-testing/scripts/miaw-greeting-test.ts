@@ -106,7 +106,69 @@ const config = require(path.resolve(process.cwd(), 'miaw-test-config.json'));
   }
 
   await page.screenshot({ path: 'miaw-03-greeting.png', fullPage: true });
-  console.log('\nScreenshots saved: miaw-01-bubble.png, miaw-02-chat-open.png, miaw-03-greeting.png');
+
+  // End the chat session to avoid stale sessions on Salesforce side
+  console.log('Ending chat session...');
+  try {
+    // Click the menu button (three dots) in the chat header
+    const menuBtn = chatFrame.locator('button:has-text("Open the chat menu"), button[aria-label*="menu" i]').first();
+    await menuBtn.click({ timeout: 5000 });
+    await page.waitForTimeout(500);
+    // Click "End chat"
+    const endChatBtn = chatFrame.locator('button:has-text("End chat"), [class*="endChat"]').first();
+    await endChatBtn.click({ timeout: 5000 });
+    await page.waitForTimeout(1000);
+    // Confirm if there's a confirmation dialog
+    const confirmBtn = chatFrame.locator('button:has-text("End chat")').first();
+    if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await confirmBtn.click();
+    }
+    console.log('Chat ended.');
+    await page.waitForTimeout(1000);
+    // Close the chat window — X button is inside the iframe header
+    // Try multiple selectors for the close/X button
+    const closeSelectors = [
+      'button:has-text("Close chat window")',
+      'button[aria-label*="Close chat" i]',
+      'button[aria-label*="close" i]',
+      'button[title*="Close" i]',
+    ];
+    let closed = false;
+    for (const sel of closeSelectors) {
+      // Try iframe first
+      const btn = chatFrame.locator(sel).first();
+      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await btn.click();
+        console.log(`Chat window closed (iframe: ${sel}).`);
+        closed = true;
+        break;
+      }
+      // Try main page
+      const mainBtn = page.locator(sel).first();
+      if (await mainBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await mainBtn.click();
+        console.log(`Chat window closed (main: ${sel}).`);
+        closed = true;
+        break;
+      }
+    }
+    if (!closed) {
+      // Last resort: find any X-looking button near the chat header
+      const xBtn = chatFrame.locator('button').filter({ hasText: /^[×✕Xx]$/ }).first();
+      if (await xBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await xBtn.click();
+        console.log('Chat window closed (X button).');
+      } else {
+        console.log('Could not find close button.');
+      }
+    }
+  } catch (e: any) {
+    console.log(`Could not end chat cleanly: ${e.message.substring(0, 80)}`);
+  }
+
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: 'miaw-04-ended.png', fullPage: true });
+  console.log('\nScreenshots saved: miaw-01-bubble.png, miaw-02-chat-open.png, miaw-03-greeting.png, miaw-04-ended.png');
 
   await browser.close();
 })();
