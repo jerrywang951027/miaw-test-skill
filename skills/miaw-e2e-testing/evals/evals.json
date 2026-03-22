@@ -1,0 +1,23 @@
+{
+  "skill_name": "miaw-e2e-testing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a Salesforce Experience Cloud site at https://acme.my.site.com/support/ with MIAW deployed. The chat connects to an Agentforce service agent that handles order inquiries. There's a pre-chat form with Name, Email, and Subject fields. I need Playwright tests that verify the pre-chat form works, the agent greets the user by name, and a 3-turn conversation where the agent asks for an order number then describes the order status. Generate the full test project I can run.",
+      "expected_output": "A complete Playwright project with config, page objects for MIAW widget and pre-chat form, test specs covering pre-chat form submission, agent greeting verification, and a multi-turn order inquiry conversation. Should include .env.example and package.json.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "We need to test our Experience Cloud messaging widget for reliability. Specifically, I want to make sure that if a user's internet drops mid-conversation with our Agentforce agent, the chat either reconnects or shows a proper error. The site is at https://testco.my.site.com/help/ and doesn't require login. Can you set up Playwright tests for this?",
+      "expected_output": "Playwright tests focusing on chat disconnection scenarios using route API to simulate network failure, with assertions on reconnection behavior or error messaging. Should include the basic widget page object and a disconnection test spec.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I'm building an Agentforce service agent for our insurance portal (Experience Cloud site). The agent does slot filling - it asks for policy number, date of incident, and description. I want automated tests that verify the full slot-filling flow works end to end, including edge cases like the user giving an invalid policy number and the agent asking again. Site URL is https://insurance.my.site.com/claims/, requires login. Generate Playwright tests.",
+      "expected_output": "Playwright project with auth setup, multi-turn conversation tests covering the happy path slot filling flow and an invalid-input retry scenario. Should use configurable conversation flow arrays and proper auth storage state handling.",
+      "files": []
+    }
+  ]
+}

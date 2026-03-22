@@ -1,0 +1,59 @@
+{
+  "$schema": "./config-schema.json",
+  "_comment": "MIAW E2E Test Configuration. Fill in your environment details below.",
+
+  "environment": {
+    "siteUrl": "https://your-site.my.site.com/s/",
+    "deploymentName": "your_embedded_service_deployment",
+    "testTimeoutMs": 60000,
+    "agentResponseTimeoutMs": 30000,
+    "retries": 1,
+    "browser": "chromium"
+  },
+
+  "auth": {
+    "required": false,
+    "loginUrl": "/login",
+    "username": "",
+    "password": "",
+    "storageStatePath": ".auth/state.json"
+  },
+
+  "preChatForm": {
+    "enabled": false,
+    "fields": [
+      { "label": "Name", "type": "text", "testValue": "Test User" },
+      { "label": "Email", "type": "text", "testValue": "testuser@example.com" },
+      { "label": "Subject", "type": "text", "testValue": "Order issue" }
+    ]
+  },
+
+  "conversationFlows": {
+    "basicGreeting": [
+      { "userMessage": "Hello", "expectAgentContains": ["hello", "hi", "help"] }
+    ],
+    "exampleSlotFilling": [
+      { "userMessage": "I need help with my order", "expectAgentContains": ["order number"] },
+      { "userMessage": "ORD-12345", "expectAgentContains": ["looking", "found"] },
+      { "userMessage": "The item arrived damaged", "expectAgentContains": ["sorry", "case"] }
+    ]
+  },
+
+  "disconnection": {
+    "enabled": false,
+    "disconnectAfterMs": 5000,
+    "reconnectAfterMs": 3000,
+    "expectReconnect": true
+  },
+
+  "selectors": {
+    "_comment": "Override default selectors if your MIAW deployment uses custom elements. Leave empty to use defaults.",
+    "chatButton": "",
+    "messageInput": "",
+    "sendButton": "",
+    "agentMessage": "",
+    "userMessage": "",
+    "typingIndicator": "",
+    "preChatForm": ""
+  }
+}

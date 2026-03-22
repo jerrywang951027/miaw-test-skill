@@ -1,0 +1,24 @@
+# Claude Code / Agent config
+.claude/
+.agents/
+
+# Dependencies
+node_modules/
+
+# Test artifacts
+test-results/
+miaw-e2e-testing-workspace/
+
+# Verification scripts (temporary)
+verify-*.ts
+miaw-test-config.json
+
+# Screenshots
+*.png
+
+# Package files (root level, not part of the skill)
+package.json
+package-lock.json
+
+# Lock files
+skills-lock.json
