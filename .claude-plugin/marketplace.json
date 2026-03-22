@@ -1,0 +1,21 @@
+{
+  "name": "miaw-test-skill",
+  "owner": {
+    "name": "Jerry Wang"
+  },
+  "metadata": {
+    "description": "MIAW (Messaging for In-App and Web) E2E testing skill for Salesforce Experience Cloud with Agentforce",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "miaw-e2e-testing",
+      "description": "End-to-end testing of Salesforce Experience Cloud MIAW chat widgets with Agentforce service agents using Playwright",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/miaw-e2e-testing"
+      ]
+    }
+  ]
+}
