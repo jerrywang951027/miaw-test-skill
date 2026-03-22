@@ -1,0 +1,7 @@
+{
+  "name": "miaw-e2e-testing",
+  "description": "End-to-end testing of Salesforce Experience Cloud MIAW chat widgets with Agentforce service agents using Playwright",
+  "author": {
+    "name": "Jerry Wang"
+  }
+}
