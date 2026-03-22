@@ -3,8 +3,8 @@ import * as path from 'path';
 const config = require(path.resolve(process.cwd(), 'miaw-test-config.json'));
 
 (async () => {
-  const browser = await chromium.launch({ headless: false });
-  const page = await browser.newPage();
+  const browser = await chromium.launch({ headless: false, args: ['--start-maximized'] });
+  const page = await browser.newPage({ viewport: null }); // null viewport = use full window size
 
   // Login
   if (config.auth.required) {
