@@ -1,257 +1,78 @@
-# MIAW Page Object Reference
+# MIAW DOM Structure Reference
 
-## MIAWWidgetPage
+Discovered through testing against a live Salesforce Experience Cloud MIAW deployment.
 
-This page object encapsulates all interactions with the MIAW chat widget.
+## Architecture
 
-### Locator Strategy
+MIAW renders in two layers:
+1. **Main page DOM** — contains the chat bubble button inside `<experience_messaging-embedded-messaging>` or `<embedded-messaging>`
+2. **Chat iframe** (`#embeddedMessagingFrame`) — contains the full chat panel (messages, input, agent info)
 
-MIAW renders inside shadow DOM via the `<embedded-messaging>` custom element. The internal
-structure varies by Salesforce release, but the general hierarchy is:
+## Iframes
 
+Three iframes are injected by MIAW:
+
+| ID | Purpose |
+|---|---|
+| `embeddedMessagingSiteContextFrame` | Site context/config |
+| `embeddedMessagingFrame` | **The chat panel** — all messages and input live here |
+| `embeddedMessagingFilePreviewFrame` | File/image preview overlay |
+
+The iframe src follows this pattern:
 ```
-<embedded-messaging>
-  #shadow-root
-    <div class="embeddedMessagingFrame">
-      <button class="embeddedMessagingConversationButton"> <!-- chat launcher -->
-      <iframe> <!-- chat window when open -->
-        <div class="conversationPanel">
-          <div class="messageList">
-            <div class="chatMessage agentMessage">...</div>
-            <div class="chatMessage endUserMessage">...</div>
-          </div>
-          <textarea class="messageInput">
-          <button class="sendButton">
-        </div>
-      </iframe>
-    </div>
-</embedded-messaging>
+{siteUrl}/ESW{deploymentId}/?lwc.mode=prod
 ```
 
-### Recommended Selectors (Priority Order)
+## Selectors
 
-1. `data-testid` attributes (if the org has custom LWC wrappers)
-2. ARIA roles and labels: `role="button"`, `aria-label="Chat with an Agent"`
-3. Semantic element + context: `embedded-messaging button`, `embedded-messaging textarea`
-4. CSS classes as last resort (prefix match to survive minor changes): `[class*="ConversationButton"]`
-
-### Core Methods
-
+### Chat Bubble (main page)
 ```typescript
-class MIAWWidgetPage {
-  private page: Page;
-  private widgetRoot: Locator;
-  private chatFrame: FrameLocator | null = null;
-
-  constructor(page: Page) {
-    this.page = page;
-    this.widgetRoot = page.locator('embedded-messaging');
-  }
-
-  async waitForWidgetReady(): Promise<void> {
-    // Wait for the embedded-messaging element to appear and its shadow root to populate
-    await this.widgetRoot.waitFor({ state: 'attached' });
-    await this.page.waitForFunction(() => {
-      const el = document.querySelector('embedded-messaging');
-      return el?.shadowRoot?.querySelector('button') !== null;
-    }, { timeout: 30000 });
-  }
-
-  async openChat(): Promise<void> {
-    await this.waitForWidgetReady();
-    // Click the chat launcher button inside shadow DOM
-    const launchButton = this.widgetRoot.locator('button').first();
-    await launchButton.click();
-    // Wait for chat window (iframe) to appear
-    await this.page.waitForSelector('embedded-messaging iframe', { timeout: 15000 });
-    this.chatFrame = this.page.frameLocator('embedded-messaging iframe');
-  }
-
-  async sendMessage(text: string): Promise<void> {
-    if (!this.chatFrame) throw new Error('Chat not open. Call openChat() first.');
-    const input = this.chatFrame.locator('textarea, [contenteditable="true"]').first();
-    await input.fill(text);
-    // Press Enter or click send button
-    const sendBtn = this.chatFrame.locator('button[class*="send"], button[aria-label*="Send"]').first();
-    if (await sendBtn.isVisible()) {
-      await sendBtn.click();
-    } else {
-      await input.press('Enter');
-    }
-  }
-
-  async waitForAgentMessage(options?: { timeout?: number; afterCount?: number }): Promise<string> {
-    if (!this.chatFrame) throw new Error('Chat not open.');
-    const timeout = options?.timeout ?? 30000;
-    const afterCount = options?.afterCount ?? 0;
-
-    // Wait for a new agent message to appear beyond the current count
-    const agentMessages = this.chatFrame.locator('[class*="agent"], [class*="Agent"]');
-    await agentMessages.nth(afterCount).waitFor({ timeout });
-    return await agentMessages.nth(afterCount).innerText();
-  }
-
-  async getMessageCount(): Promise<number> {
-    if (!this.chatFrame) return 0;
-    return await this.chatFrame.locator('[class*="chatMessage"], [class*="ChatMessage"]').count();
-  }
-
-  async getAllMessages(): Promise<Array<{ sender: 'agent' | 'user'; text: string }>> {
-    if (!this.chatFrame) return [];
-    const messages = this.chatFrame.locator('[class*="chatMessage"], [class*="ChatMessage"]');
-    const count = await messages.count();
-    const result = [];
-    for (let i = 0; i < count; i++) {
-      const el = messages.nth(i);
-      const className = await el.getAttribute('class') || '';
-      const sender = className.toLowerCase().includes('agent') ? 'agent' as const : 'user' as const;
-      const text = await el.innerText();
-      result.push({ sender, text });
-    }
-    return result;
-  }
-
-  async closeChat(): Promise<void> {
-    const closeBtn = this.widgetRoot.locator('button[aria-label*="Close"], button[aria-label*="close"]').first();
-    if (await closeBtn.isVisible()) {
-      await closeBtn.click();
-    }
-  }
-
-  async isWidgetVisible(): Promise<boolean> {
-    return await this.widgetRoot.isVisible();
-  }
-
-  async isTypingIndicatorVisible(): Promise<boolean> {
-    if (!this.chatFrame) return false;
-    const indicator = this.chatFrame.locator('[class*="typing"], [class*="Typing"]');
-    return await indicator.isVisible().catch(() => false);
-  }
-
-  async waitForTypingToStop(timeout = 30000): Promise<void> {
-    if (!this.chatFrame) return;
-    const indicator = this.chatFrame.locator('[class*="typing"], [class*="Typing"]');
-    await indicator.waitFor({ state: 'hidden', timeout }).catch(() => {});
-  }
-}
+// The chat bubble button
+page.locator('[class*="embeddedMessaging"] button').first()
+// aria-label example: "Hello, have a question? Let's chat."
 ```
 
-## PreChatFormPage
-
+### Chat Panel (inside iframe)
 ```typescript
-class PreChatFormPage {
-  private chatFrame: FrameLocator;
+const chatFrame = page.frameLocator('#embeddedMessagingFrame');
 
-  constructor(chatFrame: FrameLocator) {
-    this.chatFrame = chatFrame;
-  }
+// Full body text (includes agent name, timestamps, messages)
+const bodyText = await chatFrame.locator('body').innerText();
 
-  async isFormVisible(): Promise<boolean> {
-    const form = this.chatFrame.locator('form, [class*="preChatForm"], [class*="PreChat"]');
-    return await form.isVisible().catch(() => false);
-  }
+// Message input
+const input = chatFrame.locator('textarea, input[placeholder*="Type your message"]');
 
-  async fillField(label: string, value: string): Promise<void> {
-    // Try label-based lookup first
-    const field = this.chatFrame.locator(`label:has-text("${label}") + input, label:has-text("${label}") + textarea`).first();
-    if (await field.isVisible()) {
-      await field.fill(value);
-      return;
-    }
-    // Fallback: placeholder-based
-    const byPlaceholder = this.chatFrame.locator(`input[placeholder*="${label}" i], textarea[placeholder*="${label}" i]`).first();
-    await byPlaceholder.fill(value);
-  }
-
-  async selectDropdown(label: string, value: string): Promise<void> {
-    const select = this.chatFrame.locator(`label:has-text("${label}") + select`).first();
-    await select.selectOption({ label: value });
-  }
-
-  async submit(): Promise<void> {
-    const submitBtn = this.chatFrame.locator('button[type="submit"], button:has-text("Start Chat"), button:has-text("Submit")').first();
-    await submitBtn.click();
-  }
-
-  async fillAndSubmit(fields: Record<string, string>): Promise<void> {
-    for (const [label, value] of Object.entries(fields)) {
-      await this.fillField(label, value);
-    }
-    await this.submit();
-  }
-}
+// Send button (attachment button is also present)
+const sendBtn = chatFrame.locator('button[aria-label*="Send"]');
 ```
 
-## ExperienceSitePage
-
+### Login Page
 ```typescript
-class ExperienceSitePage {
-  private page: Page;
-  private baseUrl: string;
+// Username field
+page.locator('input[placeholder*="Username" i], input[type="text"]').first()
 
-  constructor(page: Page, baseUrl: string) {
-    this.page = page;
-    this.baseUrl = baseUrl;
-  }
+// Password field
+page.locator('input[type="password"]').first()
 
-  async navigate(path = '/'): Promise<void> {
-    await this.page.goto(this.baseUrl + path, { waitUntil: 'networkidle' });
-  }
-
-  async login(username: string, password: string): Promise<void> {
-    await this.navigate('/login');
-    await this.page.fill('#username, input[name="username"]', username);
-    await this.page.fill('#password, input[name="password"]', password);
-    await this.page.click('#Login, button[type="submit"]');
-    await this.page.waitForURL('**/s/**', { timeout: 30000 });
-  }
-
-  async waitForMIAWReady(): Promise<void> {
-    await this.page.waitForSelector('embedded-messaging', { timeout: 30000 });
-  }
-
-  async isLoggedIn(): Promise<boolean> {
-    // Check for common indicators of authenticated state
-    const avatar = this.page.locator('[class*="avatar"], [class*="userProfile"]');
-    return await avatar.isVisible().catch(() => false);
-  }
-}
+// Login button (SLDS-styled)
+page.locator('button:has-text("Log")').first()
+// class: "slds-button slds-button--brand loginButton uiButton--none uiButton"
 ```
 
-## Custom Test Fixture
+## Login Flow
 
-Wire everything together in a Playwright fixture:
+Salesforce Experience Cloud login redirects through `frontdoor.jsp`:
+1. Navigate to `{siteUrl}/s/login/`
+2. Fill credentials and click login
+3. Page redirects: login -> frontdoor.jsp -> CommunitiesLanding -> /s/ (home)
+4. Wait with: `page.waitForURL(url => !url.includes('/login'))`
+5. Then: `page.waitForLoadState('networkidle')`
 
-```typescript
-// src/fixtures/miaw.fixture.ts
-import { test as base } from '@playwright/test';
-import { MIAWWidgetPage } from '../page-objects/miaw-widget.page';
-import { PreChatFormPage } from '../page-objects/pre-chat-form.page';
-import { ExperienceSitePage } from '../page-objects/experience-site.page';
+## Chat Loading Sequence
 
-type MIAWFixtures = {
-  experienceSite: ExperienceSitePage;
-  miawWidget: MIAWWidgetPage;
-  preChatForm: PreChatFormPage;
-};
+After clicking the bubble:
+1. `embeddedMessagingFrame` iframe loads (~2-3s)
+2. Agent joins the conversation (~3-5s) — shown as "{agent name} joined"
+3. Agent sends greeting message (~5-15s total from click)
 
-export const test = base.extend<MIAWFixtures>({
-  experienceSite: async ({ page }, use) => {
-    const site = new ExperienceSitePage(page, process.env.EXPERIENCE_SITE_URL || 'http://localhost');
-    await use(site);
-  },
-  miawWidget: async ({ page }, use) => {
-    const widget = new MIAWWidgetPage(page);
-    await use(widget);
-  },
-  preChatForm: async ({ page }, use) => {
-    // PreChatForm requires the chat iframe, which is available after opening chat
-    // The test should open chat first, then access this fixture
-    const frame = page.frameLocator('embedded-messaging iframe');
-    const form = new PreChatFormPage(frame);
-    await use(form);
-  },
-});
-
-export { expect } from '@playwright/test';
-```
+Poll the iframe body text to detect when the greeting has arrived rather than using fixed timeouts.

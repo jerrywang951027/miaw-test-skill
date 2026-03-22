@@ -13,304 +13,156 @@ description: >
 
 # MIAW End-to-End Testing with Playwright
 
-This skill generates and runs Playwright test suites for Salesforce Experience Cloud MIAW
-(Messaging for In-App and Web) deployments that connect to Agentforce service agents.
+This skill runs a Playwright test against a Salesforce Experience Cloud site with MIAW
+(Messaging for In-App and Web) deployed. It logs in, opens the chat widget, captures the
+Agentforce service agent's greeting message, takes a screenshot, and presents the results.
 
-## Why Playwright for MIAW
+## Prerequisites
 
-MIAW chat widgets are rendered inside shadow DOM and iframes on Experience Cloud sites. Playwright
-handles these well because it can pierce shadow DOM boundaries, wait for dynamic elements, and
-manage the asynchronous nature of real-time messaging. The tests this skill produces use Playwright's
-built-in waiting mechanisms rather than arbitrary timeouts, which makes them resilient to network
-latency and agent response times.
+The user must have a `miaw-test-config.json` in their working directory. If it doesn't exist,
+generate one from `references/config-template.json` and ask the user to fill in their details.
 
-## What This Skill Produces
+The config must have at minimum:
+- `environment.siteUrl` — the Experience Cloud site URL (e.g., `https://myco.my.site.com/portal/s/`)
+- `auth.username` and `auth.password` — if login is required (`auth.required: true`)
 
-1. A Playwright project scaffold (`playwright.config.ts`, `package.json`, page objects, helpers)
-2. Test specs (`.spec.ts` files) covering the user's requested scenarios
-3. An HTML test report after execution (via Playwright's built-in reporter)
+## How It Works
 
-## Workflow
+When triggered, run the following steps. Do NOT generate a project scaffold or multiple test
+files. Instead, write and execute a single self-contained Playwright script.
 
-### Step 1: Generate the Config File
+### Step 1: Check for config and dependencies
 
-Before writing any tests, generate a `miaw-test-config.json` in the user's working directory.
-This is the single source of truth for all environment and test configuration. The user fills
-it in once, and all generated code reads from it.
+1. Read `miaw-test-config.json` from the working directory. If missing, generate from template and ask the user to fill it in.
+2. Check that `@playwright/test` is installed. If not, run `npm install @playwright/test` and `npx playwright install chromium`.
 
-Generate the config from the template at `references/config-template.json`. Walk the user through
-each section briefly so they know what to fill in. If the user already has a `miaw-test-config.json`,
-read it and skip to Step 2.
+### Step 2: Write and run the test script
 
-The config captures:
-- **environment**: Site URL, deployment name, timeouts
-- **auth**: Whether login is needed, credentials (or "none" for guest access)
-- **preChatForm**: Field definitions (label, type, test value)
-- **conversationFlows**: Named multi-turn test scenarios with expected agent responses
-- **disconnection**: Whether to test disconnect, how long to wait before reconnect
+Write a single file `miaw-greeting-test.ts` in the working directory and execute it with `npx tsx`.
+The script does:
 
-The generated Playwright project reads this config at runtime, so updating the config
-(e.g., changing the site URL or adding a new conversation flow) does not require regenerating tests.
+1. **Login** (if `config.auth.required` is true):
+   - Navigate to `{siteUrl}` with the path changed to end in `/s/login/`
+   - Fill username and password using selectors: `input[placeholder*="Username" i], input[type="text"]` and `input[type="password"]`
+   - Click the login button: `button:has-text("Log")`
+   - Wait for URL to change away from `/login`
+   - Wait for `networkidle`
 
-### Step 2: Scaffold the Project
+2. **Navigate to site home**:
+   - Go to `config.environment.siteUrl`
+   - Wait for `networkidle` + 3 seconds for dynamic components
 
-Generate the project in the user's working directory (or a subdirectory they specify). The structure:
+3. **Find and click the MIAW chat bubble**:
+   - The chat bubble is a button inside the embedded messaging container
+   - Selector: `[class*="embeddedMessaging"] button`
+   - The button has `aria-label` like "Hello, have a question? Let's chat."
+   - Take screenshot: `miaw-01-bubble.png`
 
+4. **Wait for chat panel and agent greeting**:
+   - The chat panel opens in an **iframe** with id `embeddedMessagingFrame`
+   - Use `page.frameLocator('#embeddedMessagingFrame')` to access chat content
+   - Wait up to 30 seconds for the greeting to appear
+   - The greeting is inside the iframe body text — use `frame.locator('body').innerText()` to extract
+   - Take screenshot: `miaw-02-chat-open.png`
+
+5. **Extract and validate the greeting**:
+   - Parse the iframe body text to find the agent's greeting message
+   - Check for unresolved merge field variables like `{!$Context.*}` — these indicate a Salesforce config issue
+   - Take final screenshot: `miaw-03-greeting.png`
+
+6. **Present results**:
+   - Print the full greeting text to console
+   - Show the screenshot using the Read tool so the user sees it inline
+   - If unresolved merge fields are found, warn the user
+
+### Key Technical Details
+
+These were discovered through actual testing against a live MIAW deployment:
+
+**DOM Structure**: The MIAW chat content lives inside an iframe, NOT in shadow DOM:
+- Main page has `<experience_messaging-embedded-messaging>` or `<embedded-messaging>` custom elements
+- The chat bubble button is in the main DOM: `[class*="embeddedMessaging"] button`
+- The chat panel (messages, input) renders inside iframe `#embeddedMessagingFrame`
+- The iframe src pattern: `{domain}/ESW{deploymentName}/` with `?lwc.mode=prod`
+
+**Login flow**: Salesforce Experience Cloud login goes through `frontdoor.jsp` redirects.
+Use `waitForURL(url => !url.includes('/login'))` rather than waiting for a specific URL.
+
+**Chat loading**: After clicking the bubble, the iframe loads and the agent joins.
+The greeting may take 5-15 seconds to appear. Poll the iframe body text rather than
+using fixed timeouts.
+
+**Extracting messages from the iframe**:
+```typescript
+const chatFrame = page.frameLocator('#embeddedMessagingFrame');
+const bodyText = await chatFrame.locator('body').innerText({ timeout: 30000 });
+// bodyText contains all chat content including agent name, timestamps, and messages
 ```
-miaw-tests/
-  miaw-test-config.json            # User-facing config (THE source of truth)
-  playwright.config.ts
-  package.json
-  src/
-    page-objects/
-      experience-site.page.ts    # Site navigation and login
-      miaw-widget.page.ts         # Chat widget interactions
-      pre-chat-form.page.ts       # Pre-chat form filling
-    helpers/
-      wait-for-agent.ts           # Wait for agent response with smart polling
-      chat-assertions.ts          # Custom assertions for chat messages
-    fixtures/
-      miaw.fixture.ts             # Playwright test fixture wiring up page objects
-  tests/
-    chat-basic.spec.ts            # Open widget, send message, get response
-    pre-chat-form.spec.ts         # Fill and submit pre-chat form
-    multi-turn.spec.ts            # Multi-turn conversation with slot filling
-    disconnection.spec.ts         # Chat disconnect and reconnect
-  reports/                        # Generated after test run
-```
 
-### Step 3: Write the Page Objects
-
-The page objects are the core of reliable MIAW testing. Read the reference file at
-`references/page-objects.md` for the complete implementation patterns. Key points:
-
-**MIAWWidgetPage** handles:
-- Locating the chat button (usually an `<embedded-messaging>` custom element or shadow DOM container)
-- Opening/closing the chat window
-- Sending messages via the input field
-- Reading agent responses from the message list
-- Waiting for typing indicators to appear and disappear
-- Scrolling to latest message
-
-**PreChatFormPage** handles:
-- Detecting form fields dynamically
-- Filling text inputs, dropdowns, checkboxes
-- Submitting the form
-- Waiting for the transition from form to chat
-
-**ExperienceSitePage** handles:
-- Navigating to the site URL
-- Login flow (if authenticated)
-- Waiting for the page and MIAW widget to fully load
-
-### Step 4: Write the Tests
-
-Each test file follows this pattern:
+### Example Test Script
 
 ```typescript
-import { test, expect } from '../src/fixtures/miaw.fixture';
+import { chromium } from '@playwright/test';
+const config = require('./miaw-test-config.json');
 
-test.describe('MIAW - Basic Chat', () => {
-  test('should open chat widget and receive agent greeting', async ({ miawWidget, experienceSite }) => {
-    await experienceSite.navigate();
-    await miawWidget.openChat();
+(async () => {
+  const browser = await chromium.launch({ headless: false });
+  const page = await browser.newPage();
 
-    const greeting = await miawWidget.waitForAgentMessage();
-    expect(greeting).toBeTruthy();
-  });
-});
-```
-
-#### Test Scenarios to Cover
-
-**Basic chat flow:**
-- Open widget, verify it renders
-- Receive agent greeting
-- Send a message, verify agent responds
-- Close chat
-
-**Pre-chat form:**
-- Open widget, verify form appears
-- Fill all required fields
-- Submit form
-- Verify transition to live chat
-- Verify agent receives pre-chat data (agent should reference it in greeting or first response)
-
-**Multi-turn conversation with slot filling:**
-- Start chat with the agent
-- Agent asks for information (slot 1) -> user provides it
-- Agent asks for next piece (slot 2) -> user provides it
-- Continue until all slots are filled
-- Verify agent confirms/summarizes the collected information
-- Verify agent takes the expected action (e.g., "I've created case #12345")
-
-The conversation turns are driven by `config.conversationFlows` from the config file. Each named
-flow is an array of turns:
-
-```json
-{
-  "conversationFlows": {
-    "orderInquiry": [
-      { "userMessage": "I need help with my order", "expectAgentContains": ["order number"] },
-      { "userMessage": "ORD-12345", "expectAgentContains": ["issue"] },
-      { "userMessage": "The item arrived damaged", "expectAgentContains": ["sorry", "created", "case"] }
-    ]
+  // Login
+  if (config.auth.required) {
+    const loginUrl = config.environment.siteUrl.replace(/\/s\/$/, '/s/login/');
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.locator('input[placeholder*="Username" i], input[type="text"]').first().fill(config.auth.username);
+    await page.locator('input[type="password"]').first().fill(config.auth.password);
+    await page.locator('button:has-text("Log")').first().click();
+    await page.waitForURL(url => !url.toString().includes('/login'), { timeout: 30000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
   }
-}
-```
 
-The test iterates through the flow array, sending each user message and asserting the agent
-response contains the expected keywords:
+  // Navigate to site
+  await page.goto(config.environment.siteUrl, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(3000);
 
-```typescript
-import config from '../../miaw-test-config.json';
+  // Click chat bubble
+  const bubble = page.locator('[class*="embeddedMessaging"] button').first();
+  await bubble.waitFor({ timeout: 15000 });
+  await page.screenshot({ path: 'miaw-01-bubble.png', fullPage: true });
+  await bubble.click();
 
-for (const [flowName, turns] of Object.entries(config.conversationFlows)) {
-  test(`multi-turn: ${flowName}`, async ({ miawWidget, experienceSite }) => {
-    // ...run through turns
-  });
-}
-```
-
-**Chat disconnection:**
-- Start a chat session
-- Simulate disconnection (navigate away or kill network via `page.route` to block WebSocket)
-- Wait, then restore connection
-- Verify reconnection behavior (either session resumes or user gets a "disconnected" message)
-- Verify the widget is still usable after reconnection
-
-### Step 5: Configure and Run
-
-The `playwright.config.ts` reads all settings from `miaw-test-config.json` — no `.env` file needed.
-The config is loaded once at the top of the config file:
-
-```typescript
-import config from './miaw-test-config.json';
-
-export default defineConfig({
-  use: {
-    baseURL: config.environment.siteUrl,
-  },
-  timeout: config.environment.testTimeoutMs,
-  retries: config.environment.retries,
-  reporter: [['html', { outputFolder: 'reports' }]],
-  // ...
-});
-```
-
-Generate a `playwright.config.ts` with:
-- Base URL from `config.environment.siteUrl`
-- Timeout from `config.environment.testTimeoutMs` (default 60000)
-- Retry count from `config.environment.retries` (default 1)
-- HTML reporter enabled by default
-- Screenshot on failure
-- Video recording on first retry
-- Auth setup project (only if `config.auth.required` is true)
-
-To run: `npx playwright test`
-To view report: `npx playwright show-report`
-
-### Step 6: Present Results
-
-After tests run, point the user to:
-1. The terminal output summary (passed/failed/skipped counts)
-2. The HTML report at `reports/` — open with `npx playwright show-report`
-3. Screenshots and videos for any failures (saved in `test-results/`)
-
-## Important Implementation Notes
-
-### Shadow DOM and MIAW Widget Selectors
-
-MIAW widgets render inside shadow DOM. Use Playwright's built-in shadow-piercing selectors:
-
-```typescript
-// The MIAW chat button is typically inside a shadow root
-const chatButton = page.locator('embedded-messaging').locator('button[class*="chat"]');
-
-// Or use CSS shadow-piercing if needed
-const messageInput = page.locator('embedded-messaging >> textarea');
-```
-
-The exact selectors vary by MIAW version and customization. The page object should use
-data-testid attributes where available, falling back to semantic selectors (role, aria-label),
-and only use CSS class selectors as a last resort since Salesforce can change class names
-between releases.
-
-### Waiting for Agent Responses
-
-Never use fixed `waitForTimeout()`. Instead, poll the message list:
-
-```typescript
-async waitForAgentMessage(previousCount: number): Promise<string> {
-  await this.page.waitForFunction(
-    (prev) => {
-      const messages = document.querySelectorAll('[class*="agent-message"]');
-      return messages.length > prev;
-    },
-    previousCount,
-    { timeout: 30000 }
-  );
-  // Return the latest agent message text
-}
-```
-
-### Network Simulation for Disconnection Tests
-
-Use Playwright's route API to simulate network issues:
-
-```typescript
-// Block WebSocket connections to simulate disconnect
-await page.route('**/*', route => {
-  if (route.request().resourceType() === 'websocket') {
-    route.abort();
-  } else {
-    route.continue();
+  // Wait for greeting in iframe
+  const chatFrame = page.frameLocator('#embeddedMessagingFrame');
+  let greeting = '';
+  for (let i = 0; i < 15; i++) {
+    await page.waitForTimeout(2000);
+    const bodyText = await chatFrame.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+    if (bodyText.includes('joined')) {
+      greeting = bodyText;
+      break;
+    }
   }
-});
+
+  await page.screenshot({ path: 'miaw-02-chat-open.png', fullPage: true });
+
+  // Extract just the greeting message
+  const lines = greeting.split('\n').filter(l => l.trim());
+  console.log('\n=== AGENT GREETING ===');
+  console.log(greeting);
+  console.log('=== END ===\n');
+
+  // Check for unresolved variables
+  const unresolved = greeting.match(/\{!\$[^}]+\}/g);
+  if (unresolved) {
+    console.log('WARNING: Unresolved merge fields:');
+    unresolved.forEach(v => console.log(`  ${v}`));
+  }
+
+  await page.screenshot({ path: 'miaw-03-greeting.png', fullPage: true });
+  await browser.close();
+})();
 ```
 
-### Authentication
+### Step 3: Show the screenshot
 
-When `config.auth.required` is true, generate an auth setup project that runs once before
-all tests, logs in using credentials from the config, and saves the session:
-
-```typescript
-// auth.setup.ts
-import { test as setup } from '@playwright/test';
-import config from '../miaw-test-config.json';
-
-setup('authenticate', async ({ page }) => {
-  await page.goto(config.environment.siteUrl + config.auth.loginUrl);
-  await page.fill('#username, input[name="username"]', config.auth.username);
-  await page.fill('#password, input[name="password"]', config.auth.password);
-  await page.click('#Login, button[type="submit"]');
-  await page.waitForURL('**/s/**', { timeout: 30000 });
-  await page.context().storageState({ path: config.auth.storageStatePath });
-});
-```
-
-The storage state is reused across all test specs, so login only happens once per run.
-
-### Custom Selectors
-
-If the user's MIAW deployment uses custom LWC wrappers or non-standard markup, they can
-override any selector in `config.selectors`. The page objects check for custom selectors first
-and fall back to defaults:
-
-```typescript
-const buttonSelector = config.selectors.chatButton || 'embedded-messaging button';
-```
-
-This avoids hardcoding selectors in test code and lets the user adapt without editing TypeScript.
-
-## Adapting to the User's Specific Setup
-
-Every MIAW deployment is different. The config file handles most variation, but prompt the user
-to review their config when:
-- The pre-chat form has complex validation or conditional fields (add field entries to config)
-- The agent flow involves handoff to a human agent (add a conversation flow for it)
-- The site uses a custom domain or non-standard URL structure (update `siteUrl`)
-- The widget uses non-standard selectors (override in `config.selectors`)
-
-When in doubt, generate the tests with clear TODO comments where the user needs to customize,
-and explain what they need to fill in.
+After the script completes, use the Read tool to show `miaw-03-greeting.png` (or `miaw-02-chat-open.png`)
+to the user so they can see the result inline in the conversation. Also print the extracted greeting text.
