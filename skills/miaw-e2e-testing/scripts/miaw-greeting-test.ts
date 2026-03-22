@@ -1,5 +1,6 @@
 import { chromium } from '@playwright/test';
-const config = require('./miaw-test-config.json');
+import * as path from 'path';
+const config = require(path.resolve(process.cwd(), 'miaw-test-config.json'));
 
 (async () => {
   const browser = await chromium.launch({ headless: false });
